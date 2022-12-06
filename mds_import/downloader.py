@@ -46,6 +46,10 @@ def retrieve_dd_list(limit = MDS_DEFAULT_LIMIT):
 
 # Get all data dictionaries and store them in data/dictionaries
 def download_dds():
+    # Turn on logging.
+    logging.basicConfig(level=logging.INFO)
+
+    # Delete the downloaded files.
     shutil.rmtree(DD_OUTPUT_DIR, ignore_errors=True)
     os.makedirs(DD_OUTPUT_DIR, exist_ok=True)
 
@@ -64,8 +68,17 @@ def download_dds():
         with open(filename, 'w') as f:
             json.dump(dd, f, sort_keys=True, indent=2)
 
-        logging.info(f"Downloaded a data dictionary containing {len(dd['data_dictionary'])} fields.")
-        count_fields += 1
+        dd_outer = dd.get('data_dictionary', dict())
+
+        # One data dictionary has a list here. This is probably a bug, but we might as well handle the
+        # case for now.
+        if isinstance(dd_outer, list):
+            fields = dd_outer
+        else:
+            fields = dd_outer.get('data_dictionary', dict())
+
+        logging.info(f"Downloaded a data dictionary containing {len(fields)} fields.")
+        count_fields += len(fields)
         count_dds += 1
 
     logging.info(f"Downloaded {count_fields} fields from {count_dds} data dictionaries.")
