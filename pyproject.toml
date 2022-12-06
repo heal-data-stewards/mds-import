@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "mds-import"
+version = "0.1.0"
+description = ""
+authors = ["Gaurav Vaidya <gaurav@renci.org>"]
+readme = "README.md"
+packages = [{include = "mds_import"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
