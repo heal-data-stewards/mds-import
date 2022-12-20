@@ -1,3 +1,8 @@
+# We store output information in /data.
+/data/
+
+## .gitignore from GitHub
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
