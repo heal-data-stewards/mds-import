@@ -99,11 +99,17 @@ def annotate_dds():
 
     # Iterate over data dictionaries.
     # If we need to recurse through subdirectories, we should use pathlib.Path instead.
+    count_files = 0
+    count_fields = 0
+    count_unannotated_fields = 0
+    unannotated_fields = []
+    count_annotations = 0
     for filename in os.listdir(DD_INPUT_DIR):
         if not filename.lower().endswith('.json'):
             logging.info(f"Skipping {filename}")
             continue
 
+        count_files += 1
         with open(os.path.join(DD_INPUT_DIR, filename), 'r') as fp:
             doc = json.load(fp)
 
@@ -119,6 +125,7 @@ def annotate_dds():
         logging.info(f"{filename} contains {len(fields)} fields.")
 
         for field in fields:
+            count_fields += 1
             name = field.get('name', '')
             desc = field.get('description', '')
             type_format = field.get('type', '')
@@ -137,9 +144,17 @@ def annotate_dds():
 
             try:
                 annotations = annotate_text(text_to_annotate)
+                if len(annotations) == 0:
+                    unannotated_fields.append(f'{filename}:{name}')
+                    logging.info(f" -0- no annotations found for {name} with text '{text_to_annotate}'")
                 for annot in annotations:
+                    count_annotations += 1
                     logging.info(f" + {annot['text']}: {annot['obj']}")
             except Exception as e:
                 logging.error(f"Could not annotate '{text_to_annotate}': {e}")
 
             logging.info("")
+
+    logging.info(f"Completed annotating {count_fields} fields from {count_files} files with a total of {count_annotations} annotations.")
+    logging.info(f"{len(unannotated_fields)} fields had no annotations: {unannotated_fields}")
+
