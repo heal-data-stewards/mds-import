@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import urllib.parse
+from urllib3.util.retry import Retry
 
 import requests
 from requests.adapters import HTTPAdapter
