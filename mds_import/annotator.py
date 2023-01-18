@@ -2,6 +2,8 @@
 import json
 import logging
 import os
+import csv
+import sys
 import shutil
 import urllib.parse
 from urllib3.util.retry import Retry
@@ -87,6 +89,53 @@ def annotate_text(text):
             )
 
     return track_sapbert
+
+
+# Annotate a single data dictionary in REDCap CSV format and store annotations in data/annotated
+def annotate_redcap(filename=None):
+    logging.basicConfig(level=logging.INFO)
+
+    if not filename:
+        filename = sys.argv[1]
+
+    # Iterate over data dictionaries.
+    # If we need to recurse through subdirectories, we should use pathlib.Path instead.
+    count_fields = 0
+    count_unannotated_fields = 0
+    unannotated_fields = []
+    count_annotations = 0
+
+    with open(filename, 'r') as csvfile:
+        csv_reader = csv.DictReader(csvfile)
+        for field in csv_reader:
+            count_fields += 1
+            logging.info(field)
+            name = field.get('Variable / Field Name', '')
+            desc = field.get('Field Label', '')
+            type_format = field.get('Field Type', '')
+            if 'format' in field:
+                type_format += ':' + field['format']
+            logging.info(f" - {name} ({type_format}): {desc}")
+
+            encodings_as_str = field.get('Choices, Calculations, OR Slider Labels', '')
+            text_to_annotate = f"{name}: {desc}\n{encodings_as_str}"
+
+            try:
+                annotations = annotate_text(text_to_annotate)
+                if len(annotations) == 0:
+                    unannotated_fields.append(f'{filename}:{name}')
+                    logging.info(f" -0- no annotations found for {name} with text '{text_to_annotate}'")
+                for annot in annotations:
+                    count_annotations += 1
+                    logging.info(f" + {annot['text']}: {annot['obj']}")
+            except Exception as e:
+                logging.error(f"Could not annotate '{text_to_annotate}': {e}")
+
+            logging.info("")
+
+    logging.info(f"Completed annotating {count_fields} fields from {filename} with a total of {count_annotations} annotations.")
+    logging.info(f"{len(unannotated_fields)} fields had no annotations: {unannotated_fields}")
+
 
 # Annotate all data dictionaries and store them in data/annotated
 def annotate_dds():
