@@ -35,7 +35,7 @@ session.mount("https://", adapter)
 
 
 # Annotate some text.
-def annotate_text(text):
+def annotate_text(text, pubannotator_output=sys.stdout):
     # Make a request to Nemo-Serve to annotate this text.
     request = {
         "text": text,
@@ -48,12 +48,18 @@ def annotate_text(text):
         logging.error(f"Received error from {NEMOSERVE_ANNOTATE_ENDPOINT}: {response}")
         return []
     annotated = response.json()
-    logging.info(f" - Nemo result: {annotated}")
+    logging.info(f" - BioMegatron result: {annotated}")
+
+    # Rejig BioMegatron into its own track.
+    track_token_classification = annotated['denotations']
+    annotated['tracks'] = [{
+        'projects': f'BioMegatron ({NEMOSERVE_ANNOTATE_ENDPOINT})',
+        'denotations': track_token_classification
+    }]
 
     # For each annotation, query it with SAPBERT.
     count_sapbert_annotations = 0
     track_sapbert = []
-    track_token_classification = annotated['denotations']
     for token in track_token_classification:
         text = token['text']
 
@@ -87,6 +93,15 @@ def annotate_text(text):
             track_sapbert.append(
                 denotation
             )
+
+    annotated['tracks'].append({
+        'projects': f'SAPBERT ({SAPBERT_ANNOTATE_ENDPOINT})',
+        'denotations': track_sapbert
+    })
+    del(annotated['denotations'])
+    pubannotator_output.write(json.dumps(annotated, sort_keys=True))
+    pubannotator_output.write("\n")
+    pubannotator_output.flush()
 
     return track_sapbert
 
