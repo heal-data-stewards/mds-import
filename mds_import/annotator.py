@@ -53,7 +53,7 @@ def annotate_text(text, pubannotator_output=sys.stdout):
     # Rejig BioMegatron into its own track.
     track_token_classification = annotated['denotations']
     annotated['tracks'] = [{
-        'projects': f'BioMegatron ({NEMOSERVE_ANNOTATE_ENDPOINT})',
+        'project': f'BioMegatron ({NEMOSERVE_ANNOTATE_ENDPOINT})',
         'denotations': track_token_classification
     }]
 
@@ -95,7 +95,7 @@ def annotate_text(text, pubannotator_output=sys.stdout):
             )
 
     annotated['tracks'].append({
-        'projects': f'SAPBERT ({SAPBERT_ANNOTATE_ENDPOINT})',
+        'project': f'SAPBERT ({SAPBERT_ANNOTATE_ENDPOINT})',
         'denotations': track_sapbert
     })
     del(annotated['denotations'])
