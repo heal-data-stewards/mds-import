@@ -222,3 +222,31 @@ def annotate_dds():
     logging.info(f"Completed annotating {count_fields} fields from {count_files} files with a total of {count_annotations} annotations.")
     logging.info(f"{len(unannotated_fields)} fields had no annotations: {unannotated_fields}")
 
+# Annotate all data dictionaries and store them in data/annotated
+def annotate_papers():
+    # Turn on logging.
+    logging.basicConfig(level=logging.INFO)
+
+    # Delete the downloaded files.
+    shutil.rmtree(ANNOTATIONS_OUTPUT_DIR, ignore_errors=True)
+    os.makedirs(ANNOTATIONS_OUTPUT_DIR, exist_ok=True)
+
+    with open('data/papers.csv', 'r') as fpaperscsv:
+        reader = csv.DictReader(fpaperscsv)
+        for row in reader:
+            pmid = row['PMID']
+            title = row['PublicationTitle']
+            abstract = row['Abstract']
+
+            text_to_annotate = f"{title}\n{abstract}"
+
+            try:
+                annotations = annotate_text(text_to_annotate)
+                if len(annotations) == 0:
+                    logging.info(f" -0- no annotations found for {name} with text '{text_to_annotate}'")
+                for annot in annotations:
+                    logging.info(f" + {annot['text']}: {annot['obj']}")
+            except Exception as e:
+                logging.error(f"Could not annotate '{text_to_annotate}': {e}")
+
+            logging.info("")

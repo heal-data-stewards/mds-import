@@ -15,6 +15,7 @@ urllib3 = "^1.26.13"
 download-dds = "mds_import.downloader:download_dds"
 annotate-dds = "mds_import.annotator:annotate_dds"
 annotate-redcap = "mds_import.annotator:annotate_redcap"
+annotate-papers = "mds_import.annotator:annotate_papers"
 
 [build-system]
 requires = ["poetry-core"]
