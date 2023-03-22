@@ -85,7 +85,9 @@ def annotate_text(text, pubannotator_output=sys.stdout):
             closest_match = result[0]
 
             denotation = dict(token)
-            denotation['obj'] = f"MESH:{closest_match['curie']} ({closest_match['label']}, score: {closest_match['distance_score']})"
+            # denotation['obj'] = f"MESH:{closest_match['curie']} ({closest_match['label']}, score: {closest_match['distance_score']})"
+            denotation['obj'] = f"{closest_match['label']} (MESH:{closest_match['curie']})"
+
             count_sapbert_annotations += 1
             # This is fine for PubAnnotator format (I think?), but PubAnnotator editors
             # don't render this.
@@ -231,8 +233,12 @@ def annotate_papers():
     shutil.rmtree(ANNOTATIONS_OUTPUT_DIR, ignore_errors=True)
     os.makedirs(ANNOTATIONS_OUTPUT_DIR, exist_ok=True)
 
-    with open('data/papers.csv', 'r') as fpaperscsv:
+    with open('data/papers.csv', 'r') as fpaperscsv, open('data/annotated-papers.csv', 'w') as foutputcsv:
         reader = csv.DictReader(fpaperscsv)
+        fieldnames = reader.fieldnames
+        fieldnames.insert(10, 'annotations')
+        writer = csv.DictWriter(foutputcsv, fieldnames=fieldnames)
+        writer.writeheader()
         for row in reader:
             pmid = row['PMID']
             title = row['PublicationTitle']
@@ -240,13 +246,19 @@ def annotate_papers():
 
             text_to_annotate = f"{title}\n{abstract}"
 
+            annotations_set = set()
             try:
                 annotations = annotate_text(text_to_annotate)
                 if len(annotations) == 0:
-                    logging.info(f" -0- no annotations found for {name} with text '{text_to_annotate}'")
+                    logging.info(f" -0- no annotations found for PMID {pmid} with text '{text_to_annotate}'")
                 for annot in annotations:
                     logging.info(f" + {annot['text']}: {annot['obj']}")
+                    annotations_set.add(annot['obj'])
             except Exception as e:
                 logging.error(f"Could not annotate '{text_to_annotate}': {e}")
+
+            row['annotations'] = ';'.join(sorted(annotations_set))
+            writer.writerow(row)
+            foutputcsv.flush()
 
             logging.info("")
