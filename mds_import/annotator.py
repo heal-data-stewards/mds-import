@@ -11,6 +11,9 @@ from urllib3.util.retry import Retry
 import requests
 from requests.adapters import HTTPAdapter
 
+# Timeout
+TIMEOUT = 360
+
 # Data dictionary path.
 DD_INPUT_DIR = 'data/dictionaries'
 
@@ -42,7 +45,7 @@ def annotate_text(text, pubannotator_output=sys.stdout):
         "model_name": NEMOSERVE_MODEL_NAME
     }
     logging.debug(f"Request: {request}")
-    response = session.post(NEMOSERVE_ANNOTATE_ENDPOINT, json=request)
+    response = session.post(NEMOSERVE_ANNOTATE_ENDPOINT, json=request, timeout=TIMEOUT)
     logging.debug(f"Response: {response.content}")
     if not response.ok:
         logging.error(f"Received error from {NEMOSERVE_ANNOTATE_ENDPOINT}: {response}")
@@ -70,7 +73,7 @@ def annotate_text(text, pubannotator_output=sys.stdout):
             "text": token['text'],
             "model_name": SAPBERT_MODEL_NAME
         }
-        response = session.post(SAPBERT_ANNOTATE_ENDPOINT, json=request)
+        response = session.post(SAPBERT_ANNOTATE_ENDPOINT, json=request, timeout=TIMEOUT)
         logging.debug(f"Response from SAPBERT: {response.content}")
         if not response.ok:
             logging.error(f"Received error from {SAPBERT_ANNOTATE_ENDPOINT}: {response}")
@@ -233,16 +236,22 @@ def annotate_papers():
     shutil.rmtree(ANNOTATIONS_OUTPUT_DIR, ignore_errors=True)
     os.makedirs(ANNOTATIONS_OUTPUT_DIR, exist_ok=True)
 
-    with open('data/papers.csv', 'r') as fpaperscsv, open('data/annotated-papers.csv', 'w') as foutputcsv:
+    with open('data/annotated-papers-2023mar22.csv', 'r') as fpaperscsv, open('data/annotated-papers.csv', 'w') as foutputcsv:
         reader = csv.DictReader(fpaperscsv)
         fieldnames = reader.fieldnames
-        fieldnames.insert(10, 'annotations')
+        # TODO: this seems to cause all the data to be offset by one -- I'm not sure why.
+        # fieldnames.insert(10, 'annotations')
         writer = csv.DictWriter(foutputcsv, fieldnames=fieldnames)
         writer.writeheader()
         for row in reader:
             pmid = row['PMID']
             title = row['PublicationTitle']
             abstract = row['Abstract']
+
+            if row['annotations']:
+                logging.info(f"Existing annotations found for PMID {pmid}, no annotation necessary.")
+                writer.writerow(row)
+                continue
 
             text_to_annotate = f"{title}\n{abstract}"
 
