@@ -2,12 +2,17 @@
 import json
 import logging
 import os
+import csv
+import sys
 import shutil
 import urllib.parse
 from urllib3.util.retry import Retry
 
 import requests
 from requests.adapters import HTTPAdapter
+
+# Timeout
+TIMEOUT = 360
 
 # Data dictionary path.
 DD_INPUT_DIR = 'data/dictionaries'
@@ -33,25 +38,31 @@ session.mount("https://", adapter)
 
 
 # Annotate some text.
-def annotate_text(text):
+def annotate_text(text, pubannotator_output=sys.stdout):
     # Make a request to Nemo-Serve to annotate this text.
     request = {
         "text": text,
         "model_name": NEMOSERVE_MODEL_NAME
     }
     logging.debug(f"Request: {request}")
-    response = session.post(NEMOSERVE_ANNOTATE_ENDPOINT, json=request)
+    response = session.post(NEMOSERVE_ANNOTATE_ENDPOINT, json=request, timeout=TIMEOUT)
     logging.debug(f"Response: {response.content}")
     if not response.ok:
         logging.error(f"Received error from {NEMOSERVE_ANNOTATE_ENDPOINT}: {response}")
         return []
     annotated = response.json()
-    logging.info(f" - Nemo result: {annotated}")
+    logging.info(f" - BioMegatron result: {annotated}")
+
+    # Rejig BioMegatron into its own track.
+    track_token_classification = annotated['denotations']
+    annotated['tracks'] = [{
+        'project': f'BioMegatron ({NEMOSERVE_ANNOTATE_ENDPOINT})',
+        'denotations': track_token_classification
+    }]
 
     # For each annotation, query it with SAPBERT.
     count_sapbert_annotations = 0
     track_sapbert = []
-    track_token_classification = annotated['denotations']
     for token in track_token_classification:
         text = token['text']
 
@@ -62,7 +73,7 @@ def annotate_text(text):
             "text": token['text'],
             "model_name": SAPBERT_MODEL_NAME
         }
-        response = session.post(SAPBERT_ANNOTATE_ENDPOINT, json=request)
+        response = session.post(SAPBERT_ANNOTATE_ENDPOINT, json=request, timeout=TIMEOUT)
         logging.debug(f"Response from SAPBERT: {response.content}")
         if not response.ok:
             logging.error(f"Received error from {SAPBERT_ANNOTATE_ENDPOINT}: {response}")
@@ -77,7 +88,9 @@ def annotate_text(text):
             closest_match = result[0]
 
             denotation = dict(token)
-            denotation['obj'] = f"MESH:{closest_match['curie']} ({closest_match['label']}, score: {closest_match['distance_score']})"
+            # denotation['obj'] = f"MESH:{closest_match['curie']} ({closest_match['label']}, score: {closest_match['distance_score']})"
+            denotation['obj'] = f"{closest_match['label']} (MESH:{closest_match['curie']})"
+
             count_sapbert_annotations += 1
             # This is fine for PubAnnotator format (I think?), but PubAnnotator editors
             # don't render this.
@@ -86,7 +99,63 @@ def annotate_text(text):
                 denotation
             )
 
+    annotated['tracks'].append({
+        'project': f'SAPBERT ({SAPBERT_ANNOTATE_ENDPOINT})',
+        'denotations': track_sapbert
+    })
+    del(annotated['denotations'])
+    pubannotator_output.write(json.dumps(annotated, sort_keys=True))
+    pubannotator_output.write("\n")
+    pubannotator_output.flush()
+
     return track_sapbert
+
+
+# Annotate a single data dictionary in REDCap CSV format and store annotations in data/annotated
+def annotate_redcap(filename=None):
+    logging.basicConfig(level=logging.INFO)
+
+    if not filename:
+        filename = sys.argv[1]
+
+    # Iterate over data dictionaries.
+    # If we need to recurse through subdirectories, we should use pathlib.Path instead.
+    count_fields = 0
+    count_unannotated_fields = 0
+    unannotated_fields = []
+    count_annotations = 0
+
+    with open(filename, 'r') as csvfile:
+        csv_reader = csv.DictReader(csvfile)
+        for field in csv_reader:
+            count_fields += 1
+            logging.info(field)
+            name = field.get('Variable / Field Name', '')
+            desc = field.get('Field Label', '')
+            type_format = field.get('Field Type', '')
+            if 'format' in field:
+                type_format += ':' + field['format']
+            logging.info(f" - {name} ({type_format}): {desc}")
+
+            encodings_as_str = field.get('Choices, Calculations, OR Slider Labels', '')
+            text_to_annotate = f"{name}: {desc}\n{encodings_as_str}"
+
+            try:
+                annotations = annotate_text(text_to_annotate)
+                if len(annotations) == 0:
+                    unannotated_fields.append(f'{filename}:{name}')
+                    logging.info(f" -0- no annotations found for {name} with text '{text_to_annotate}'")
+                for annot in annotations:
+                    count_annotations += 1
+                    logging.info(f" + {annot['text']}: {annot['obj']}")
+            except Exception as e:
+                logging.error(f"Could not annotate '{text_to_annotate}': {e}")
+
+            logging.info("")
+
+    logging.info(f"Completed annotating {count_fields} fields from {filename} with a total of {count_annotations} annotations.")
+    logging.info(f"{len(unannotated_fields)} fields had no annotations: {unannotated_fields}")
+
 
 # Annotate all data dictionaries and store them in data/annotated
 def annotate_dds():
@@ -158,3 +227,47 @@ def annotate_dds():
     logging.info(f"Completed annotating {count_fields} fields from {count_files} files with a total of {count_annotations} annotations.")
     logging.info(f"{len(unannotated_fields)} fields had no annotations: {unannotated_fields}")
 
+# Annotate all data dictionaries and store them in data/annotated
+def annotate_papers():
+    # Turn on logging.
+    logging.basicConfig(level=logging.INFO)
+
+    # Delete the downloaded files.
+    shutil.rmtree(ANNOTATIONS_OUTPUT_DIR, ignore_errors=True)
+    os.makedirs(ANNOTATIONS_OUTPUT_DIR, exist_ok=True)
+
+    with open('data/annotated-papers-2023mar22.csv', 'r') as fpaperscsv, open('data/annotated-papers.csv', 'w') as foutputcsv:
+        reader = csv.DictReader(fpaperscsv)
+        fieldnames = reader.fieldnames
+        # TODO: this seems to cause all the data to be offset by one -- I'm not sure why.
+        # fieldnames.insert(10, 'annotations')
+        writer = csv.DictWriter(foutputcsv, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in reader:
+            pmid = row['PMID']
+            title = row['PublicationTitle']
+            abstract = row['Abstract']
+
+            if row['annotations']:
+                logging.info(f"Existing annotations found for PMID {pmid}, no annotation necessary.")
+                writer.writerow(row)
+                continue
+
+            text_to_annotate = f"{title}\n{abstract}"
+
+            annotations_set = set()
+            try:
+                annotations = annotate_text(text_to_annotate)
+                if len(annotations) == 0:
+                    logging.info(f" -0- no annotations found for PMID {pmid} with text '{text_to_annotate}'")
+                for annot in annotations:
+                    logging.info(f" + {annot['text']}: {annot['obj']}")
+                    annotations_set.add(annot['obj'])
+            except Exception as e:
+                logging.error(f"Could not annotate '{text_to_annotate}': {e}")
+
+            row['annotations'] = ';'.join(sorted(annotations_set))
+            writer.writerow(row)
+            foutputcsv.flush()
+
+            logging.info("")
